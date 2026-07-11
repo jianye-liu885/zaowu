@@ -102,9 +102,11 @@ class AuthBody(BaseModel):
 
 @app.post("/api/register")
 def register(body: AuthBody):
-    name = body.username.strip()
-    if len(name) < 2 or len(body.password) < 6:
-        raise HTTPException(400, "用户名≥2位，密码≥6位")
+    name = body.username.strip().lower()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", name):
+        raise HTTPException(400, "请使用有效邮箱注册")
+    if len(body.password) < 6:
+        raise HTTPException(400, "密码至少 6 位")
     salt = secrets.token_hex(8)
     with db() as c:
         if c.execute("SELECT 1 FROM users WHERE username=?", (name,)).fetchone():

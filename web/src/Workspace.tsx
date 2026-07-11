@@ -4,7 +4,7 @@ import { api, generateStream } from "./api";
 type Msg = { role: string; content: string };
 type Version = { id: string; seq: number; instruction: string; summary: string; created_at?: number };
 
-export function Workspace({ id, onBack }: { id: string; onBack: () => void }) {
+export function Workspace({ id, autoStart, onBack }: { id: string; autoStart?: string; onBack: () => void }) {
   const [name, setName] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [versions, setVersions] = useState<Version[]>([]);
@@ -18,6 +18,7 @@ export function Workspace({ id, onBack }: { id: string; onBack: () => void }) {
   const [showCode, setShowCode] = useState(false);
   const [error, setError] = useState("");
   const chatRef = useRef<HTMLDivElement>(null);
+  const autoStarted = useRef(false);
 
   useEffect(() => {
     api.project(id).then((p) => {
@@ -26,15 +27,21 @@ export function Workspace({ id, onBack }: { id: string; onBack: () => void }) {
       setVersions(p.versions);
       setHtml(p.html);
       setShareSlug(p.share_slug);
+      // 首页带过来的指令：项目还是空的就自动开跑（ref 防 StrictMode 双触发）
+      if (autoStart && !p.versions.length && !autoStarted.current) {
+        autoStarted.current = true;
+        void send(autoStart);
+      }
     }).catch((e) => setError((e as Error).message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   useEffect(() => {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight });
   }, [messages, busy, liveLen]);
 
-  async function send() {
-    const instruction = input.trim();
+  async function send(text?: string) {
+    const instruction = (text ?? input).trim();
     if (!instruction || busy) return;
     setInput("");
     setError("");

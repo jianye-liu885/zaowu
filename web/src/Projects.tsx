@@ -11,8 +11,8 @@ const IDEAS = [
   "五子棋，人机对战",
 ];
 
-export function Projects({ username, onOpen, onLogout }:
-  { username: string; onOpen: (id: string) => void; onLogout: () => void }) {
+export function Projects({ username, onOpen, onHome, onLogout }:
+  { username: string; onOpen: (id: string) => void; onHome: () => void; onLogout: () => void }) {
   const [list, setList] = useState<Project[] | null>(null);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -40,8 +40,9 @@ export function Projects({ username, onOpen, onLogout }:
   return (
     <div className="projects-page">
       <header className="topbar">
-        <span className="brand"><span className="logo sm">造</span> 造物 Zaowu</span>
+        <span className="brand" style={{ cursor: "pointer" }} onClick={onHome}><span className="logo sm">造</span> 造物 Zaowu</span>
         <span className="row">
+          <button className="btn ghost sm" onClick={onHome}>＋ 从想法开始</button>
           <span className="muted">{username}</span>
           <button className="btn ghost sm" onClick={onLogout}>退出</button>
         </span>
