@@ -387,3 +387,15 @@ a { color: var(--accent); }
   from { opacity: 0; transform: translateY(14px) scale(0.98); }
   to { opacity: 1; transform: none; }
 }
+
+/* 流式思考过程 */
+.live-reason {
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--text-2);
+  opacity: 0.85;
+  border-left: 2px solid var(--border);
+  padding-left: 10px;
+  margin-bottom: 8px;
+  white-space: pre-wrap;
+}

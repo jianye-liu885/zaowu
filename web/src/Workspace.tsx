@@ -13,8 +13,9 @@ export function Workspace({ id, autoStart, onBack }: { id: string; autoStart?: s
   const [shareSlug, setShareSlug] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [liveLen, setLiveLen] = useState(0);
+  const [liveReason, setLiveReason] = useState("");
   const [liveNote, setLiveNote] = useState("");
+  const [writing, setWriting] = useState(false); // 已进入代码输出阶段
   const [showCode, setShowCode] = useState(false);
   const [error, setError] = useState("");
   const chatRef = useRef<HTMLDivElement>(null);
@@ -38,7 +39,7 @@ export function Workspace({ id, autoStart, onBack }: { id: string; autoStart?: s
 
   useEffect(() => {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight });
-  }, [messages, busy, liveLen]);
+  }, [messages, busy, liveReason, liveNote, writing]);
 
   async function send(text?: string) {
     const instruction = (text ?? input).trim();
@@ -46,22 +47,24 @@ export function Workspace({ id, autoStart, onBack }: { id: string; autoStart?: s
     setInput("");
     setError("");
     setBusy(true);
-    setLiveLen(0);
+    setLiveReason("");
     setLiveNote("");
+    setWriting(false);
     setMessages((m) => [...m, { role: "user", content: instruction }]);
     let noteBuf = "";
     let inCode = false;
     try {
       await generateStream(id, instruction, (e) => {
-        if (e.type === "chunk") {
-          // 代码围栏前的说明文字实时显示；进入代码块后只累计字数
+        if (e.type === "reasoning") {
+          setLiveReason((r) => r + e.text);
+        } else if (e.type === "chunk") {
+          // 代码围栏前的说明文字实时显示；进入代码块后切换为「正在编写」状态
           if (!inCode) {
             noteBuf += e.text;
             const fence = noteBuf.indexOf("```");
-            if (fence >= 0) { inCode = true; setLiveNote(noteBuf.slice(0, fence).trim()); }
+            if (fence >= 0) { inCode = true; setWriting(true); setLiveNote(noteBuf.slice(0, fence).trim()); }
             else setLiveNote(noteBuf.trim());
           }
-          setLiveLen((n) => n + e.text.length);
         } else if (e.type === "done") {
           setHtml(e.html);
           setViewSeq(null);
@@ -75,8 +78,9 @@ export function Workspace({ id, autoStart, onBack }: { id: string; autoStart?: s
       setError((err as Error).message);
     } finally {
       setBusy(false);
-      setLiveLen(0);
+      setLiveReason("");
       setLiveNote("");
+      setWriting(false);
     }
   }
 
@@ -163,8 +167,11 @@ export function Workspace({ id, autoStart, onBack }: { id: string; autoStart?: s
             {busy && (
               <div className="live">
                 <span className="spinner" />
+                {liveReason && <div className="live-reason">💭 {liveReason}</div>}
                 {liveNote && <div className="live-note">{liveNote}</div>}
-                <div className="muted">{liveLen > 0 ? `正在生成应用…（已输出 ${liveLen} 字）` : "Agent 思考中…"}</div>
+                <div className="muted">
+                  {writing ? "正在编写应用代码…" : liveReason || liveNote ? "" : "Agent 思考中…"}
+                </div>
               </div>
             )}
             {error && <div className="error">{error}</div>}

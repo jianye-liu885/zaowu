@@ -321,6 +321,9 @@ def generate(pid: str, body: GenBody, user: dict = Depends(current_user)):
                     if data == "[DONE]":
                         break
                     delta = (json.loads(data).get("choices") or [{}])[0].get("delta", {})
+                    think = delta.get("reasoning_content") or ""
+                    if think:
+                        yield sse({"type": "reasoning", "text": think})
                     piece = delta.get("content") or ""
                     if piece:
                         full += piece

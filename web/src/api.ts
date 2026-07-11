@@ -40,6 +40,7 @@ export const api = {
 };
 
 export type GenEvent =
+  | { type: "reasoning"; text: string }
   | { type: "chunk"; text: string }
   | { type: "done"; version: { id: string; seq: number; summary: string; instruction: string }; html: string }
   | { type: "error"; message: string };
