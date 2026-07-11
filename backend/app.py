@@ -63,6 +63,9 @@ def init_db():
         CREATE TABLE IF NOT EXISTS messages(
           id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id),
           role TEXT NOT NULL, content TEXT NOT NULL, created_at INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS email_codes(
+          email TEXT PRIMARY KEY, code TEXT NOT NULL,
+          expires_at INTEGER NOT NULL, last_sent INTEGER NOT NULL);
         """)
 
 
@@ -98,6 +101,73 @@ def current_user(authorization: str = Header(default="")) -> dict:
 class AuthBody(BaseModel):
     username: str
     password: str
+    code: str = ""
+
+
+# ---------- 邮箱验证码（SMTP 未配置时降级 mock：验证码打日志，便于本地联调） ----------
+CODE_TTL = 600  # 10 分钟
+SEND_INTERVAL = 60
+
+
+def _send_code_email(to_email: str, code: str) -> bool:
+    host = os.environ.get("MAIL_SMTP_HOST", "")
+    user = os.environ.get("MAIL_SMTP_USER", "")
+    password = os.environ.get("MAIL_SMTP_PASS", "")
+    if not (host and user and password):
+        print(f"[mailer:mock] 未配置 SMTP，验证码未真实发送 → {to_email} code={code}", flush=True)
+        return True
+    import smtplib
+    import ssl
+    from email.header import Header
+    from email.mime.text import MIMEText
+    from email.utils import formataddr
+
+    port = int(os.environ.get("MAIL_SMTP_PORT", "465"))
+    from_name = os.environ.get("MAIL_FROM_NAME", "造物 Zaowu")
+    msg = MIMEText(f"你正在注册造物 Zaowu 账号。\n\n验证码：{code}\n\n"
+                   f"10 分钟内有效，请勿泄露给他人。如非本人操作，请忽略本邮件。", "plain", "utf-8")
+    msg["Subject"] = Header("【造物 Zaowu】注册验证码", "utf-8")
+    msg["From"] = formataddr((str(Header(from_name, "utf-8")), user))
+    msg["To"] = to_email
+    try:
+        ctx = ssl.create_default_context()
+        if port == 465:
+            with smtplib.SMTP_SSL(host, port, timeout=15, context=ctx) as s:
+                s.login(user, password)
+                s.sendmail(user, [to_email], msg.as_string())
+        else:
+            with smtplib.SMTP(host, port, timeout=15) as s:
+                s.starttls(context=ctx)
+                s.login(user, password)
+                s.sendmail(user, [to_email], msg.as_string())
+        return True
+    except Exception as e:  # noqa: BLE001
+        print(f"[mailer] 发送失败 to={to_email}: {e}", flush=True)
+        return False
+
+
+class SendCodeBody(BaseModel):
+    email: str
+
+
+@app.post("/api/send-code")
+def send_code(body: SendCodeBody):
+    email = body.email.strip().lower()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise HTTPException(400, "请输入有效邮箱")
+    now = _now()
+    with db() as c:
+        if c.execute("SELECT 1 FROM users WHERE username=?", (email,)).fetchone():
+            raise HTTPException(400, "该邮箱已注册，请直接登录")
+        row = c.execute("SELECT last_sent FROM email_codes WHERE email=?", (email,)).fetchone()
+        if row and now - row["last_sent"] < SEND_INTERVAL:
+            raise HTTPException(429, f"发送太频繁，请 {SEND_INTERVAL - (now - row['last_sent'])} 秒后再试")
+        code = f"{secrets.randbelow(1000000):06d}"
+        if not _send_code_email(email, code):
+            raise HTTPException(500, "验证码发送失败，请稍后再试")
+        c.execute("INSERT OR REPLACE INTO email_codes VALUES(?,?,?,?)",
+                  (email, code, now + CODE_TTL, now))
+    return {"ok": True}
 
 
 @app.post("/api/register")
@@ -111,6 +181,12 @@ def register(body: AuthBody):
     with db() as c:
         if c.execute("SELECT 1 FROM users WHERE username=?", (name,)).fetchone():
             raise HTTPException(400, "用户名已存在")
+        row = c.execute("SELECT code, expires_at FROM email_codes WHERE email=?", (name,)).fetchone()
+        if not row or row["expires_at"] < _now():
+            raise HTTPException(400, "请先获取验证码" if not row else "验证码已过期，请重新获取")
+        if body.code.strip() != row["code"]:
+            raise HTTPException(400, "验证码错误")
+        c.execute("DELETE FROM email_codes WHERE email=?", (name,))
         uid = _id()
         c.execute("INSERT INTO users VALUES(?,?,?,?)",
                   (uid, name, f"{salt}${_hash(body.password, salt)}", _now()))

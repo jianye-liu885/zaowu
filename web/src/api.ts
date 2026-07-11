@@ -23,8 +23,10 @@ async function req(path: string, options: RequestInit = {}) {
 }
 
 export const api = {
-  register: (username: string, password: string) =>
-    req("/api/register", { method: "POST", body: JSON.stringify({ username, password }) }),
+  sendCode: (email: string) =>
+    req("/api/send-code", { method: "POST", body: JSON.stringify({ email }) }),
+  register: (username: string, password: string, code: string) =>
+    req("/api/register", { method: "POST", body: JSON.stringify({ username, password, code }) }),
   login: (username: string, password: string) =>
     req("/api/login", { method: "POST", body: JSON.stringify({ username, password }) }),
   me: () => req("/api/me"),
