@@ -16,6 +16,8 @@ export function Workspace({ id, autoStart, onBack }: { id: string; autoStart?: s
   const [liveReason, setLiveReason] = useState("");
   const [liveNote, setLiveNote] = useState("");
   const [writing, setWriting] = useState(false); // 已进入代码输出阶段
+  const [liveCode, setLiveCode] = useState(""); // 正在生成的代码流（预览区实时展示）
+  const codeRef = useRef<HTMLPreElement>(null);
   const [showCode, setShowCode] = useState(false);
   const [error, setError] = useState("");
   const chatRef = useRef<HTMLDivElement>(null);
@@ -41,6 +43,11 @@ export function Workspace({ id, autoStart, onBack }: { id: string; autoStart?: s
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight });
   }, [messages, busy, liveReason, liveNote, writing]);
 
+  // 代码流自动滚到最新一行
+  useEffect(() => {
+    if (codeRef.current) codeRef.current.scrollTop = codeRef.current.scrollHeight;
+  }, [liveCode]);
+
   async function send(text?: string) {
     const instruction = (text ?? input).trim();
     if (!instruction || busy) return;
@@ -50,21 +57,28 @@ export function Workspace({ id, autoStart, onBack }: { id: string; autoStart?: s
     setLiveReason("");
     setLiveNote("");
     setWriting(false);
+    setLiveCode("");
     setMessages((m) => [...m, { role: "user", content: instruction }]);
-    let noteBuf = "";
-    let inCode = false;
+    let contentBuf = "";
+    let codeStart = -1; // 代码围栏（含语言行）之后的起点
     try {
       await generateStream(id, instruction, (e) => {
         if (e.type === "reasoning") {
           setLiveReason((r) => r + e.text);
         } else if (e.type === "chunk") {
-          // 代码围栏前的说明文字实时显示；进入代码块后切换为「正在编写」状态
-          if (!inCode) {
-            noteBuf += e.text;
-            const fence = noteBuf.indexOf("```");
-            if (fence >= 0) { inCode = true; setWriting(true); setLiveNote(noteBuf.slice(0, fence).trim()); }
-            else setLiveNote(noteBuf.trim());
+          contentBuf += e.text;
+          if (codeStart < 0) {
+            // 围栏前是给用户看的说明；命中围栏后其余都是代码流
+            const m = /```[a-z]*\n/.exec(contentBuf);
+            if (m) {
+              codeStart = m.index + m[0].length;
+              setWriting(true);
+              setLiveNote(contentBuf.slice(0, m.index).trim());
+            } else {
+              setLiveNote(contentBuf.trim());
+            }
           }
+          if (codeStart >= 0) setLiveCode(contentBuf.slice(codeStart).replace(/```\s*$/, ""));
         } else if (e.type === "done") {
           setHtml(e.html);
           setViewSeq(null);
@@ -81,6 +95,7 @@ export function Workspace({ id, autoStart, onBack }: { id: string; autoStart?: s
       setLiveReason("");
       setLiveNote("");
       setWriting(false);
+      setLiveCode("");
     }
   }
 
@@ -191,10 +206,34 @@ export function Workspace({ id, autoStart, onBack }: { id: string; autoStart?: s
         </aside>
 
         <main className="preview-pane">
-          {!html ? (
-            <div className="preview-empty muted">
-              {busy ? "应用正在生成，完成后自动预览…" : "生成后的应用会在这里实时运行"}
-            </div>
+          {busy ? (
+            liveCode ? (
+              <div className="build-view">
+                <div className="build-head">
+                  <span className="spinner" />
+                  <span>正在编写应用代码</span>
+                  <span className="muted">{liveCode.split("\n").length} 行</span>
+                </div>
+                <pre className="build-code" ref={codeRef}>{liveCode}<span className="build-caret" /></pre>
+              </div>
+            ) : (
+              <div className="skeleton-view">
+                <div className="sk-window">
+                  <div className="sk-bar" />
+                  <div className="sk-row">
+                    <div className="sk-box lg" />
+                    <div className="sk-col">
+                      <div className="sk-box" />
+                      <div className="sk-box" />
+                      <div className="sk-box sm" />
+                    </div>
+                  </div>
+                </div>
+                <div className="muted sk-tip">Agent 正在设计应用结构…</div>
+              </div>
+            )
+          ) : !html ? (
+            <div className="preview-empty muted">生成后的应用会在这里实时运行</div>
           ) : showCode ? (
             <pre className="code-view">{html}</pre>
           ) : (
